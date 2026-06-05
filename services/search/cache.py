@@ -9,7 +9,7 @@ from typing import Dict
 logger = logging.getLogger(__name__)
 
 # Cache directories
-CACHE_DIR = Path(__file__).resolve().parent.parent / "cache"
+CACHE_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "cache"
 SEARCH_CACHE_DIR = CACHE_DIR / "search"
 CONTENT_CACHE_DIR = CACHE_DIR / "content"
 CACHE_MAX_ENTRIES = 1000
