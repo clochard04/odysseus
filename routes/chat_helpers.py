@@ -594,7 +594,7 @@ def _normalize_thinking(text: str) -> str:
     from src.text_helpers import normalize_thinking_markup
     text = normalize_thinking_markup(text)
     reasoning_prefix_re = re.compile(
-        r'^\s*(?:thinking(?:\s+process)?\s*:|the user |i need |i should |i will |they are |the question |i can )',
+        r'^\s*(?:thinking(?:\s+process)?\s*:|the user |i need |i should |i will |they are |the question |i can |we need |we can |we should |we will |let me |let\'s )',
         re.IGNORECASE,
     )
     thinking_prefix_re = re.compile(r'^thinking(?:\s+process)?\s*:\s*', re.IGNORECASE)
@@ -612,6 +612,8 @@ def _normalize_thinking(text: str) -> str:
         reasoning_starts = (
             'The user ', 'I need ', 'I should ', 'I will ',
             'They are ', 'The question ', 'I can ',
+            'We need ', 'We can ', 'We should ', 'We will ',
+            "Let me ", "Let's ",
             'Thinking Process', 'Thinking:',
         )
         stripped_before = before.lstrip()
@@ -658,6 +660,8 @@ def _normalize_thinking(text: str) -> str:
     reasoning_starts = (
         'The user ', 'I need ', 'I should ', 'I will ',
         'They are ', 'The question ', 'I can ',
+        'We need ', 'We can ', 'We should ', 'We will ',
+        "Let me ", "Let's ",
     )
     reply_starts = (
         'Hey', 'Hi ', 'Hi!', 'Hello', 'Sure', 'Yes', 'No ', 'No,', 'Yo', 'OK',
