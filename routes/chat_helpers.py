@@ -594,7 +594,7 @@ def _normalize_thinking(text: str) -> str:
     from src.text_helpers import normalize_thinking_markup
     text = normalize_thinking_markup(text)
     reasoning_prefix_re = re.compile(
-        r'^\s*(?:thinking(?:\s+process)?\s*:|the user |i need |i should |i will |they are |the question |i can |we need |we can |we should |we will |let me |let\'s )',
+        r'^\s*(?:thinking(?:\s+process)?\s*:|the user |user (?:wants|asks|asked|wants|requests|requested|gave|has|said|is)|i need |i should |i will |they are |the question |i can |we need |we can |we should |we will |let me |let\'s )',
         re.IGNORECASE,
     )
     thinking_prefix_re = re.compile(r'^thinking(?:\s+process)?\s*:\s*', re.IGNORECASE)
@@ -610,7 +610,9 @@ def _normalize_thinking(text: str) -> str:
         after = garbled.group(2).strip()
         # Only treat as garbled if the part before <think> looks like reasoning
         reasoning_starts = (
-            'The user ', 'I need ', 'I should ', 'I will ',
+            'The user ', 'User wants ', 'User asks ', 'User asked ',
+            'User requests ', 'User gave ', 'User has ', 'User said ', 'User is ',
+            'I need ', 'I should ', 'I will ',
             'They are ', 'The question ', 'I can ',
             'We need ', 'We can ', 'We should ', 'We will ',
             "Let me ", "Let's ",
@@ -658,7 +660,10 @@ def _normalize_thinking(text: str) -> str:
     stripped_text = text.lstrip()
     first_line = stripped_text.split('\n')[0].strip()
     reasoning_starts = (
-        'The user ', 'I need ', 'I should ', 'I will ',
+        'The user ', 'User wants ', 'User asks ', 'User asked ',
+        'User requests ', 'User requested ', 'User gave ', 'User has ',
+        'User said ', 'User is ',
+        'I need ', 'I should ', 'I will ',
         'They are ', 'The question ', 'I can ',
         'We need ', 'We can ', 'We should ', 'We will ',
         "Let me ", "Let's ",

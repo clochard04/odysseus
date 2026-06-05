@@ -185,6 +185,17 @@ class ChatProcessor:
                 "role": "system",
                 "content": preset_system_prompt
             })
+        if not preset_system_prompt:
+            preface.append({
+                "role": "system",
+                "content": (
+                    "You are a helpful AI assistant. "
+                    "When you reason internally before responding, always wrap your "
+                    "internal thoughts in <think>...</think> tags. "
+                    "Your actual response to the user must follow after the closing </think> tag. "
+                    "Never mix reasoning with your reply."
+                ),
+            })
         if not agent_mode:
             try:
                 from src.user_time import current_datetime_prompt
