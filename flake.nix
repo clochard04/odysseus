@@ -170,6 +170,11 @@
                   formats:
                     - html
                     - json
+                engines:
+                  - name: ahmia
+                    disabled: true
+                  - name: torch
+                    disabled: true
               '';
             };
 
