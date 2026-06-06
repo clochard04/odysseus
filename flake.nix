@@ -72,6 +72,21 @@
                 Can be managed with sops-nix or agenix.
               '';
             };
+
+            user = lib.mkOption {
+              type = lib.types.str;
+              default = "root";
+              description = ''
+                User that owns dataDir on the host. Set to your login user when
+                dataDir is under /home — the container drops to this uid via PUID.
+              '';
+            };
+
+            group = lib.mkOption {
+              type = lib.types.str;
+              default = "root";
+              description = "Group that owns dataDir on the host.";
+            };
           };
 
           config = lib.mkIf cfg.enable {
@@ -135,13 +150,13 @@
 
             # Create persistent data directories on first activation.
             systemd.tmpfiles.rules = [
-              "d ${cfg.dataDir}                       0755 root root -"
-              "d ${cfg.dataDir}/data                  0755 root root -"
-              "d ${cfg.dataDir}/logs                  0755 root root -"
-              "d ${cfg.dataDir}/data/ssh              0700 root root -"
-              "d ${cfg.dataDir}/data/huggingface      0755 root root -"
-              "d ${cfg.dataDir}/data/local            0755 root root -"
-              "d ${cfg.dataDir}/chroma                0755 root root -"
+              "d ${cfg.dataDir}                       0755 ${cfg.user} ${cfg.group} -"
+              "d ${cfg.dataDir}/data                  0755 ${cfg.user} ${cfg.group} -"
+              "d ${cfg.dataDir}/logs                  0755 ${cfg.user} ${cfg.group} -"
+              "d ${cfg.dataDir}/data/ssh              0700 ${cfg.user} ${cfg.group} -"
+              "d ${cfg.dataDir}/data/huggingface      0755 ${cfg.user} ${cfg.group} -"
+              "d ${cfg.dataDir}/data/local            0755 ${cfg.user} ${cfg.group} -"
+              "d ${cfg.dataDir}/chroma                0755 ${cfg.user} ${cfg.group} -"
             ];
 
             # SearXNG settings template — the entrypoint script sed-substitutes
@@ -266,6 +281,11 @@
                 volumes:
                   searxng-data:
                   ntfy-cache:
+
+                networks:
+                  default:
+                    name: odysseus_default
+                    external: true
               '';
             };
 
