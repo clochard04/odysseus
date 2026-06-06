@@ -303,12 +303,14 @@
                 WorkingDirectory = "/etc/odysseus";
                 Environment = "PATH=/run/current-system/sw/bin:/usr/local/bin:/usr/local/sbin:/usr/bin:/bin";
                 ExecStartPre = [
-                  # Always recreate the Podman network so aardvark-dns starts fresh
-                  # and reads the current /etc/resolv.conf (real upstream IPs).
-                  # podman-compose down in pod mode removes the pod but NOT the
-                  # network, so the stale aardvark instance persists across restarts
-                  # with the old forwarding config if we only create-if-missing.
-                  "${pkgs.bash}/bin/bash -c '${pkgs.podman}/bin/podman network rm odysseus_default 2>/dev/null; ${pkgs.podman}/bin/podman network create --dns=1.1.1.1 --dns=9.9.9.9 odysseus_default'"
+                  # Tear down any running compose stack and recreate the Podman
+                  # network so aardvark-dns starts fresh with current resolv.conf.
+                  # podman-compose down removes containers but NOT the network, so
+                  # aardvark persists with stale forwarding config across restarts.
+                  # --force disconnects any containers still attached to the network
+                  # (e.g. from a manual podman-compose run outside systemd) so the
+                  # rm never silently fails and leaves a stale network behind.
+                  "${pkgs.bash}/bin/bash -c '${pkgs.podman-compose}/bin/podman-compose -f /etc/odysseus/docker-compose.yml down 2>/dev/null; ${pkgs.podman}/bin/podman network rm --force odysseus_default 2>/dev/null; ${pkgs.podman}/bin/podman network create --dns=1.1.1.1 --dns=9.9.9.9 odysseus_default'"
                   "${pkgs.podman-compose}/bin/podman-compose -f /etc/odysseus/docker-compose.yml build"
                 ];
                 ExecStart = "${pkgs.podman-compose}/bin/podman-compose -f /etc/odysseus/docker-compose.yml up -d";
