@@ -21,6 +21,7 @@
         devShell = pkgs.mkShell {
           buildInputs = [ pkgs.podman-compose ];
           shellHook = ''
+            export LD_LIBRARY_PATH="${pkgs.stdenv.cc.cc.lib}/lib:${pkgs.zlib}/lib:$LD_LIBRARY_PATH"
             echo "Odysseus dev shell. Run 'podman-compose up --build' to start."
           '';
         };
