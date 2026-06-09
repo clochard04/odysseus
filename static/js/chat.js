@@ -102,6 +102,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
   }
   let currentAccumulated = ''; // Track accumulated text across function scope
   let currentHolder = null; // Track current message holder
+  let currentRoundHolder = null; // Track latest agent-step bubble (may differ from currentHolder in multi-step agent turns)
   let currentSpinner = null; // Track current spinner for stop cleanup
 
   // Background streaming support
@@ -337,6 +338,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
         // turn survives a refresh instead of vanishing without a trace.
         _renderCancelledBubble(currentHolder);
         currentHolder = null;
+        currentRoundHolder = null;
         updateSubmitButton('idle', submitBtn);
         const messageInput = uiModule.el('message');
         if (messageInput) messageInput.disabled = false;
@@ -372,7 +374,9 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
         continueBtn.className = 'continue-btn';
         continueBtn.title = 'Continue';
         continueBtn.textContent = '\u25B8';
-        const _stoppedHolder = currentHolder; // capture before it gets cleared
+        // In multi-step agent turns the visible text is in the latest round bubble,
+        // not the outer currentHolder — prefer currentRoundHolder when available.
+        const _stoppedHolder = currentRoundHolder || currentHolder;
         continueBtn.addEventListener('click', () => {
           stoppedIndicator.remove();
           _hideUserBubble = true;
@@ -390,7 +394,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
           }
         });
         stoppedIndicator.appendChild(continueBtn);
-        currentHolder.querySelector('.body').appendChild(stoppedIndicator);
+        _stoppedHolder.querySelector('.body').appendChild(stoppedIndicator);
 
         // Tell server to mark this message as stopped
         const _sid = sessionModule.getCurrentSessionId();
@@ -415,6 +419,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
       // Clear tracking variables
       currentAccumulated = '';
       currentHolder = null;
+      currentRoundHolder = null;
 
       return;
     }
@@ -591,6 +596,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
     // Reset tracking variables at start
     currentAccumulated = '';
     currentHolder = null;
+    currentRoundHolder = null;
     
     try {
       // Re-enable auto-scroll when user sends a message
@@ -2461,6 +2467,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
                 newWrap.appendChild(newBody);
                 box.appendChild(newWrap);
                 roundHolder = newWrap;
+                currentRoundHolder = newWrap; // keep module-level tracker in sync
                 roundText = '';
                 // Destroy any previous spinner before creating new one
                 if (spinner && spinner.element) spinner.destroy();
@@ -3019,6 +3026,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
         // Clear tracking variables
         currentAccumulated = '';
         currentHolder = null;
+        currentRoundHolder = null;
         currentSpinner = null;
         _researchingStreamIds.delete(streamSessionId);
         // Clear research-running highlight if no more active research
@@ -3292,6 +3300,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
     currentAbort = null;
     isStreaming = false;
     currentHolder = null;
+    currentRoundHolder = null;
     currentAccumulated = '';
     // Reset submit button so the new chat is ready to send
     const submitBtn = document.querySelector('.send-btn');
