@@ -380,7 +380,11 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
           const cutoff = stoppedContent;
           const msgInput = uiModule.el('message');
           if (msgInput) {
-            msgInput.value = 'Your previous response was interrupted. It ended with:\n\n' + cutoff.slice(-500) + '\n\nDo NOT repeat what you already said. Continue exactly from where you were cut off.';
+            const _uniqueTools = [...new Set(_calledToolNames)];
+            const _toolNote = _uniqueTools.length
+              ? '\n\nTools already called this turn (do NOT call these again): ' + _uniqueTools.join(', ') + '.'
+              : '';
+            msgInput.value = 'Your previous response was interrupted. It ended with:\n\n' + cutoff.slice(-500) + _toolNote + '\n\nDo NOT repeat what you already said. Continue exactly from where you were cut off.';
             const sb = document.querySelector('.send-btn');
             if (sb) sb.click();
           }
@@ -555,6 +559,8 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
 
     // Declare accumulated outside try block so it's accessible in catch
     let accumulated = '';
+    // Track tool names called this turn so the continue message can warn the model not to repeat them
+    let _calledToolNames = [];
     // Are we currently inside an unclosed <think> block? Toggled per think/answer
     // cycle so a multi-round agent response (one reasoning phase PER round) wraps each
     // round's reasoning in its own <think>…</think> instead of leaking rounds 2+ as text.
@@ -2011,6 +2017,8 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
 
                 // Track tool name for contextual spinner labels
                 _lastToolName = json.tool || '';
+                // Record each tool call so the continue message can warn not to repeat
+                if (json.tool) _calledToolNames.push(json.tool);
 
                 // --- Thread timeline: group tools in a thread container ---
                 const cmd = json.command || '';
@@ -2922,7 +2930,11 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
               const cutoff = accumulated;
               const msgInput = uiModule.el('message');
               if (msgInput) {
-                msgInput.value = 'Your previous response was interrupted. It ended with:\n\n' + cutoff.slice(-500) + '\n\nDo NOT repeat what you already said. Continue exactly from where you were cut off.';
+                const _uniqueTools2 = [...new Set(_calledToolNames)];
+                const _toolNote2 = _uniqueTools2.length
+                  ? '\n\nTools already called this turn (do NOT call these again): ' + _uniqueTools2.join(', ') + '.'
+                  : '';
+                msgInput.value = 'Your previous response was interrupted. It ended with:\n\n' + cutoff.slice(-500) + _toolNote2 + '\n\nDo NOT repeat what you already said. Continue exactly from where you were cut off.';
                 const sb = document.querySelector('.send-btn');
                 if (sb) sb.click();
               }
