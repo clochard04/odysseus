@@ -103,6 +103,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
   let currentAccumulated = ''; // Track accumulated text across function scope
   let currentHolder = null; // Track current message holder
   let currentRoundHolder = null; // Track latest agent-step bubble (may differ from currentHolder in multi-step agent turns)
+  let currentCalledToolNames = []; // Track tool names called this turn so Continue can warn the model
   let currentSpinner = null; // Track current spinner for stop cleanup
 
   // Background streaming support
@@ -384,7 +385,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
           const cutoff = stoppedContent;
           const msgInput = uiModule.el('message');
           if (msgInput) {
-            const _uniqueTools = [...new Set(_calledToolNames)];
+            const _uniqueTools = [...new Set(currentCalledToolNames)];
             const _toolNote = _uniqueTools.length
               ? '\n\nTools already called this turn (do NOT call these again): ' + _uniqueTools.join(', ') + '.'
               : '';
@@ -564,8 +565,8 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
 
     // Declare accumulated outside try block so it's accessible in catch
     let accumulated = '';
-    // Track tool names called this turn so the continue message can warn the model not to repeat them
-    let _calledToolNames = [];
+    // Reset per-turn tool tracker (module-level so the stop handler's click closure can read it)
+    currentCalledToolNames = [];
     // Are we currently inside an unclosed <think> block? Toggled per think/answer
     // cycle so a multi-round agent response (one reasoning phase PER round) wraps each
     // round's reasoning in its own <think>…</think> instead of leaking rounds 2+ as text.
@@ -2024,7 +2025,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
                 // Track tool name for contextual spinner labels
                 _lastToolName = json.tool || '';
                 // Record each tool call so the continue message can warn not to repeat
-                if (json.tool) _calledToolNames.push(json.tool);
+                if (json.tool) currentCalledToolNames.push(json.tool);
 
                 // --- Thread timeline: group tools in a thread container ---
                 const cmd = json.command || '';
@@ -2937,7 +2938,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
               const cutoff = accumulated;
               const msgInput = uiModule.el('message');
               if (msgInput) {
-                const _uniqueTools2 = [...new Set(_calledToolNames)];
+                const _uniqueTools2 = [...new Set(currentCalledToolNames)];
                 const _toolNote2 = _uniqueTools2.length
                   ? '\n\nTools already called this turn (do NOT call these again): ' + _uniqueTools2.join(', ') + '.'
                   : '';
