@@ -232,8 +232,16 @@ if AUTH_ENABLED:
                 new_map[r.token_prefix].append((r.id, r.token_hash, getattr(r, "owner", None), scopes))
         finally:
             db.close()
-        _token_cache.clear()
-        _token_cache.update(new_map)
+        # Swap contents in place WITHOUT a clear()+update() gap. The reader on
+        # the request hot path does `_token_cache.get(prefix)` with no lock; a
+        # bare clear() momentarily empties the dict, so a concurrent reader
+        # could miss a valid token and return a spurious 401. Instead, set the
+        # new keys first (each assignment is atomic under the GIL) then drop
+        # keys no longer present — an existing prefix is never absent mid-swap.
+        for _k, _v in new_map.items():
+            _token_cache[_k] = _v
+        for _k in [k for k in _token_cache.keys() if k not in new_map]:
+            _token_cache.pop(_k, None)
         app.state._token_cache_dirty = False
 
     # Headers that prove a request was forwarded by a proxy/tunnel (cloudflared,
@@ -892,8 +900,28 @@ async def _startup_event():
     # GC tasks created with `asyncio.create_task(...)` before they finish.
     _startup_tasks: list[asyncio.Task] = getattr(app.state, "_startup_tasks", [])
     app.state._startup_tasks = _startup_tasks
+
+    def _log_task_exception(task: asyncio.Task) -> None:
+        """Surface exceptions from fire-and-forget startup tasks. Without a
+        done-callback, a crash in one of these background loops/coroutines is
+        swallowed silently — the server stays 'up' (health check green) while a
+        subsystem is dead. Log it at error level instead."""
+        try:
+            exc = task.exception()
+        except asyncio.CancelledError:
+            return
+        if exc is not None:
+            logger.error("Startup task %r failed: %r", task.get_name(), exc, exc_info=exc)
+
+    def _spawn(coro, name: str) -> asyncio.Task:
+        t = asyncio.create_task(coro, name=name)
+        t.add_done_callback(_log_task_exception)
+        _startup_tasks.append(t)
+        return t
+
     if upload_cleanup_func:
         upload_cleanup_task = asyncio.create_task(upload_cleanup_func())
+        upload_cleanup_task.add_done_callback(_log_task_exception)
     # Always-on monitor that auto-continues the agent when a background bash
     # job (#!bg) finishes — re-invokes the turn with the job output.
     try:
@@ -916,7 +944,7 @@ async def _startup_event():
         except BaseException as e:
             logger.warning(f"MCP startup failed (non-critical): {type(e).__name__}: {e}")
 
-    _startup_tasks.append(asyncio.create_task(_startup_mcp_connections()))
+    _spawn(_startup_mcp_connections(), "mcp-connections")
 
     # Pre-warm the RAG tool index off the request path. Loading the local
     # embedding model + opening ChromaDB + indexing the built-in tools is a
@@ -933,7 +961,7 @@ async def _startup_event():
         except Exception as e:
             logger.warning(f"Tool index warmup failed (non-critical): {type(e).__name__}: {e}")
 
-    _startup_tasks.append(asyncio.create_task(_warmup_tool_index()))
+    _spawn(_warmup_tool_index(), "tool-index-warmup")
     # Warmup: ping all known LLM endpoints to prime connections
     async def _warmup_endpoints():
         try:
@@ -951,7 +979,7 @@ async def _startup_event():
         except Exception as e:
             logger.debug(f"Warmup ping skipped: {e}")
 
-    _startup_tasks.append(asyncio.create_task(_warmup_endpoints()))
+    _spawn(_warmup_endpoints(), "endpoint-warmup")
 
     # Keep-alive: ping endpoints every 60 seconds to prevent cold starts
     async def _keepalive_loop():
@@ -963,7 +991,7 @@ async def _startup_event():
                 logger.warning(f"Keepalive loop error: {e}")
                 await asyncio.sleep(300)  # Back off on error
 
-    _startup_tasks.append(asyncio.create_task(_keepalive_loop()))
+    _spawn(_keepalive_loop(), "keepalive-loop")
 
     async def _ensure_default_tasks():
         # Create/reconcile default automation tasks + personal assistant for every user.
@@ -1058,7 +1086,7 @@ async def _startup_event():
                 logger.debug(f"Null-owner sweep skipped: {e}")
                 await asyncio.sleep(3600)
 
-    _startup_tasks.append(asyncio.create_task(_null_owner_sweep_loop()))
+    _spawn(_null_owner_sweep_loop(), "null-owner-sweep")
 
     # Nightly skill audit — at ~02:00 local, test + judge a batch of the
     # least-recently-checked skills, auto-fixing/escalating weak ones (never
@@ -1088,7 +1116,7 @@ async def _startup_event():
             except Exception as e:
                 logger.warning(f"Nightly skill audit failed: {e}")
 
-    _startup_tasks.append(asyncio.create_task(_skill_audit_nightly_loop()))
+    _spawn(_skill_audit_nightly_loop(), "skill-audit-nightly")
 
     # Cookbook serve lifecycle — kills scheduler-launched serves whose
     # window-end has passed. Paired with the cookbook_serve builtin
@@ -1097,7 +1125,7 @@ async def _startup_event():
     # cookbook_serve entry in BUILTIN_ACTIONS + src/cookbook_serve_lifecycle.py
     # removes the feature.
     from src.cookbook_serve_lifecycle import cookbook_serve_lifecycle_loop
-    _startup_tasks.append(asyncio.create_task(cookbook_serve_lifecycle_loop()))
+    _spawn(cookbook_serve_lifecycle_loop(), "cookbook-serve-lifecycle")
 
     logger.info("Application startup complete")
 

@@ -75,6 +75,13 @@ def _verify_password(password: str, hashed: str) -> bool:
     return bcrypt.checkpw(password.encode("utf-8"), hashed.encode("utf-8"))
 
 
+def _looks_hashed(value: str) -> bool:
+    """True for a bcrypt hash (``$2a$``/``$2b$``/``$2y$``), used to tell a
+    hashed backup code apart from a legacy plaintext one stored before codes
+    were hashed at rest."""
+    return isinstance(value, str) and value.startswith("$2")
+
+
 class AuthManager:
     """Manages multi-user password + session-token auth system."""
 
@@ -380,27 +387,38 @@ class AuthManager:
         totp = pyotp.TOTP(secret)
         return totp.provisioning_uri(name=username, issuer_name="Odysseus")
 
-    def totp_confirm_enable(self, username: str, code: str) -> bool:
-        """Verify a TOTP code against the pending secret, then enable 2FA."""
+    def totp_confirm_enable(self, username: str, code: str) -> Optional[List[str]]:
+        """Verify a TOTP code against the pending secret, then enable 2FA.
+
+        Returns the freshly generated **plaintext** backup codes on success
+        (so the caller can show them to the user once) or ``None`` on failure.
+        Only bcrypt hashes of the codes are persisted — the plaintext exists
+        only in this return value and is never written to ``auth.json``. An
+        empty/None result is falsy, so existing ``if not confirm(...)`` callers
+        still treat failure correctly.
+        """
         username = username.strip().lower()
         user = self.users.get(username, {})
         secret = user.get("totp_secret_pending")
         if not secret:
-            return False
+            return None
         totp = pyotp.TOTP(secret)
         if not totp.verify(code, valid_window=1):
-            return False
+            return None
+        # Generate backup codes: 64 bits of entropy each (token_hex(8)), a big
+        # step up from the old 32-bit token_hex(4). Persist only bcrypt hashes
+        # so a leaked/stolen auth.json can't be used to bypass 2FA directly.
+        plain_codes = [secrets.token_hex(8) for _ in range(8)]
+        hashed_codes = [_hash_password(c) for c in plain_codes]
         # Enable 2FA
         with self._config_lock:
             self._config["users"][username]["totp_secret"] = secret
             self._config["users"][username]["totp_enabled"] = True
             self._config["users"][username].pop("totp_secret_pending", None)
-            # Generate backup codes
-            backup = [secrets.token_hex(4) for _ in range(8)]
-            self._config["users"][username]["totp_backup_codes"] = backup
+            self._config["users"][username]["totp_backup_codes"] = hashed_codes
             self._save()
         logger.info(f"2FA enabled for '{username}'")
-        return True
+        return plain_codes
 
     def totp_verify(self, username: str, code: str) -> bool:
         """Verify a TOTP code for login."""
@@ -414,14 +432,34 @@ class AuthManager:
             # auth.json). Fail closed — returning True here bypassed the second
             # factor entirely.
             return False
-        # Check backup codes first
-        backup = user.get("totp_backup_codes", [])
-        if code in backup:
+        # Check backup codes first. Each stored entry is either a bcrypt hash
+        # (current) or a legacy plaintext code (pre-hashing); handle both, and
+        # use constant-time comparison for the plaintext path so a valid code
+        # can't be distinguished by timing. Always scan every entry before
+        # deciding so the match position doesn't leak via timing either.
+        backup = list(user.get("totp_backup_codes", []))
+        matched_index = -1
+        for i, stored in enumerate(backup):
+            try:
+                if _looks_hashed(stored):
+                    if bcrypt.checkpw(code.encode("utf-8"), stored.encode("utf-8")):
+                        matched_index = i
+                else:
+                    if secrets.compare_digest(str(stored), code):
+                        matched_index = i
+            except Exception:
+                continue
+        if matched_index >= 0:
             with self._config_lock:
-                backup.remove(code)
-                self._config["users"][username]["totp_backup_codes"] = backup
+                # Re-read under the lock to avoid clobbering a concurrent change.
+                cur = list(self._config["users"][username].get("totp_backup_codes", backup))
+                try:
+                    cur.pop(matched_index)
+                except IndexError:
+                    cur = [c for j, c in enumerate(backup) if j != matched_index]
+                self._config["users"][username]["totp_backup_codes"] = cur
                 self._save()
-            logger.info(f"Backup code used for '{username}' ({len(backup)} remaining)")
+            logger.info(f"Backup code used for '{username}' ({len(backup) - 1} remaining)")
             return True
         totp = pyotp.TOTP(secret)
         return totp.verify(code, valid_window=1)

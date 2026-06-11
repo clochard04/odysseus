@@ -38,6 +38,26 @@ from src.integrations import (
 logger = logging.getLogger(__name__)
 
 
+def _should_secure_cookie(request: Request) -> bool:
+    """Decide whether the session cookie gets the ``Secure`` flag.
+
+    Historically this was off unless ``SECURE_COOKIES=true`` was set by hand,
+    so a tunnelled/HTTPS deployment shipped the session cookie without
+    ``Secure`` because the operator never flipped an env var they didn't know
+    about. Now: an explicit ``SECURE_COOKIES`` value still wins (true/false),
+    otherwise auto-detect HTTPS from the request scheme or the proxy's
+    ``X-Forwarded-Proto`` (cloudflared / nginx / Caddy terminate TLS and
+    connect to the app over plain HTTP, so the scheme alone reads "http").
+    """
+    override = os.getenv("SECURE_COOKIES")
+    if override is not None and override.strip() != "":
+        return override.strip().lower() == "true"
+    if (request.url.scheme or "").lower() == "https":
+        return True
+    fwd_proto = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower()
+    return fwd_proto == "https"
+
+
 class LoginRequest(BaseModel):
     username: str
     password: str
@@ -144,7 +164,7 @@ def setup_auth_routes(auth_manager: AuthManager) -> APIRouter:
             value=token,
             httponly=True,
             samesite="lax",
-            secure=os.getenv("SECURE_COOKIES", "false").lower() == "true",
+            secure=_should_secure_cookie(request),
             path="/",
         )
         if body.remember:
@@ -224,9 +244,11 @@ def setup_auth_routes(auth_manager: AuthManager) -> APIRouter:
         user = _get_current_user(request)
         if not user:
             raise HTTPException(401, "Not authenticated")
-        if not auth_manager.totp_confirm_enable(user, body.code):
+        # Returns the one-time plaintext backup codes on success (only their
+        # bcrypt hashes are persisted); None/empty means the TOTP code was wrong.
+        backup = auth_manager.totp_confirm_enable(user, body.code)
+        if not backup:
             raise HTTPException(400, "Invalid code — try again")
-        backup = auth_manager.users.get(user, {}).get("totp_backup_codes", [])
         return {"ok": True, "backup_codes": backup}
 
     class TotpDisableRequest(BaseModel):

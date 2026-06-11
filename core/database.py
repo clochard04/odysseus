@@ -52,6 +52,17 @@ def set_sqlite_pragma(dbapi_connection, connection_record):
     if isinstance(dbapi_connection, sqlite3.Connection):
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
+        # WAL lets readers run concurrently with a writer instead of blocking
+        # on a single global lock. Combined with check_same_thread=False and
+        # the app's threaded DB access (asyncio.to_thread, pollers, daemon
+        # threads), the default rollback journal produced spurious
+        # "database is locked" errors under concurrency. busy_timeout makes a
+        # contending connection wait up to 5s for the lock instead of failing
+        # immediately; synchronous=NORMAL is the standard safe pairing with WAL
+        # (durable across app crashes, only at risk on OS/power loss).
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=5000")
+        cursor.execute("PRAGMA synchronous=NORMAL")
         cursor.close()
 
 
